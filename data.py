@@ -63,3 +63,7 @@ def load_cifar100_cached() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarr
 
 def load_random_pool(n: int = 100_000, seed: int = 0) -> np.ndarray:
     return np.load(CACHE_DIR / f"random_pixel_features_n{n}_seed{seed}.npy")
+
+
+def load_stl10_pool() -> np.ndarray:
+    return np.load(CACHE_DIR / "stl10_unlabeled_features.npy")

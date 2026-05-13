@@ -71,6 +71,28 @@ def cache_cifar100(model: torch.nn.Module, device: torch.device, batch_size: int
 
 
 @torch.no_grad()
+def cache_stl10_unlabeled(model: torch.nn.Module, device: torch.device, batch_size: int) -> None:
+    """Cache ViT features on STL-10 unlabeled (100K natural OOD images for CIFAR-100).
+    Used as an alternative pseudo-rehearsal input distribution (SPEC extension)."""
+    out_path = CACHE_DIR / "stl10_unlabeled_features.npy"
+    if out_path.exists():
+        print(f"[skip] {out_path.name} already exists")
+        return
+
+    transform = build_transform()
+    ds = datasets.STL10(root=DATA_DIR, split="unlabeled", download=True, transform=transform)
+    loader = DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=2, pin_memory=True)
+
+    feats = []
+    for x, _y in tqdm(loader, desc="stl10 unlabeled"):
+        x = x.to(device, non_blocking=True)
+        feats.append(model(x).half().cpu())
+    feats = torch.cat(feats).numpy()
+    np.save(out_path, feats)
+    print(f"[save] {out_path.name}: {feats.shape} {feats.dtype}")
+
+
+@torch.no_grad()
 def cache_random_pool(
     model: torch.nn.Module,
     device: torch.device,
@@ -111,6 +133,7 @@ def main() -> None:
     parser.add_argument("--random-pool-size", type=int, default=100_000)
     parser.add_argument("--random-seed", type=int, default=0)
     parser.add_argument("--skip-random", action="store_true")
+    parser.add_argument("--with-stl10", action="store_true", help="also cache STL-10 unlabeled features")
     args = parser.parse_args()
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -124,6 +147,8 @@ def main() -> None:
     cache_cifar100(model, device, args.batch_size)
     if not args.skip_random:
         cache_random_pool(model, device, args.random_pool_size, args.batch_size, args.random_seed)
+    if args.with_stl10:
+        cache_stl10_unlabeled(model, device, args.batch_size)
 
     print("done.")
 
