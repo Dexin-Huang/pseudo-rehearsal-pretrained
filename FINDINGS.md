@@ -1,10 +1,10 @@
 # FINDINGS — Pseudo-Rehearsal with a Frozen ViT-S/16 on Split-CIFAR-100
 
-Milestone snapshot, 2026-05-13. First full sweep complete.
+Milestone snapshot, 2026-05-13. First sweep + extension sweep complete.
 
 ## Headline
 
-With a frozen ImageNet-pretrained ViT-S/16 backbone and a linear 384→100 head trained sequentially on Split-CIFAR-100 (Class-IL, 10 tasks × 10 classes), Robins-1995-style pseudo-rehearsal performs no better than sequential fine-tuning: ACC 0.103 vs 0.102 over three seeds. LwF on current-task features is essentially tied with it (0.111). The only methods that move the needle are class-balanced experience replay (0.529) and joint training as the upper bound (0.788). The diagnostics in `results/diagnostics.json` give a clean mechanistic explanation: uniform random pixels through the ViT collapse to a small, off-manifold region of feature space, and the teacher head classifies 62.7% of those features as one dominant class. The thesis that a modern pretrained backbone's natural-image prior makes random pseudo-inputs informative is falsified in this setting.
+With a frozen ImageNet-pretrained ViT-S/16 backbone and a linear 384→100 head trained sequentially on Split-CIFAR-100 (Class-IL, 10 tasks × 10 classes), the Robins-1995-with-a-pretrained-backbone thesis is falsified twice over. The original pseudo-rehearsal (random pixels through ViT → snapshot teacher → KD) performs no better than sequential fine-tuning (ACC 0.103 vs 0.102). A 2×2 ablation that independently swaps the input distribution (random pixels vs STL-10 natural images) and the teacher source (per-task snapshot vs joint-trained oracle) gives the same null result in every cell — all four pseudo variants are within noise of each other and of sequential. Only experience replay (0.529) and joint training (0.788, upper bound) move the needle. The mechanism check confirms a tight geometric prediction: `argmax_c (W_c · μ_random + b_c) = 23` exactly matches the empirically-dominant teacher class on random inputs, so the random-pixel collapse is fully determined by the head and the mean random feature. But the extension shows that the collapse explanation alone is not the story — even non-collapsing natural inputs and a perfect oracle teacher don't save pseudo-rehearsal. The deeper finding is that in linear-head Class-IL with seen-class masking, output-only regularization (KD-based pseudo / LwF / EWC) is structurally weak: only methods that put actual old-class examples into the training batch can preserve old boundaries.
 
 ## What was built
 
@@ -26,19 +26,33 @@ All code lives under `paper/pseudo-rehearsal/`.
 
 ## What was run
 
-Six methods × three seeds = 18 training runs, one diagnostics pass, on a single secure-cloud RTX 4090 pod. The whole session including feature caching took ~11 minutes; the 18 head-only training runs themselves summed to 195.5 s (~3.3 min) of compute. Aggregated by method (mean ± std over seeds 0/1/2):
+**Sweep 1 (six methods × three seeds = 18 runs)** plus a diagnostics pass, then **Sweep 2 (three new pseudo variants × three seeds = 9 runs)** plus a mechanism check and figures. All on RTX 4090 secure-cloud pods (one for each sweep). The two extensions implemented in `methods/pseudo.py` via two orthogonal parameters: `pool_source ∈ {random, stl10}` and `oracle_teacher_ckpt ∈ {None, path-to-joint-head}`. The four-cell 2×2 over (input × teacher) is registered as `pseudo`, `pseudo_oracle`, `pseudo_natural`, `pseudo_oracle_natural`.
+
+Aggregated by method (mean ± std over seeds 0/1/2):
 
 ```
-method          ACC          FGT         BWT      n
-joint           0.788±0.000  0.000       n/a      3   (upper bound)
-replay          0.529±0.004  0.450      -0.450    3
-ewc             0.192±0.010  0.825      -0.825    3
-lwf             0.111±0.012  0.919      -0.919    3
-pseudo          0.103±0.005  0.927      -0.927    3
-sequential      0.102±0.004  0.928      -0.928    3
+method                         ACC          FGT         BWT      n
+joint                    0.788±0.000  0.000       n/a            3    upper bound
+replay                   0.529±0.004  0.450      -0.450          3
+ewc                      0.192±0.010  0.825      -0.825          3
+lwf                      0.111±0.012  0.919      -0.919          3
+pseudo_natural           0.106±0.008  0.923      -0.923          3    STL-10 + CL teacher
+pseudo_oracle            0.105±0.005  0.925      -0.925          3    random  + joint teacher
+pseudo                   0.103±0.005  0.927      -0.927          3    random  + CL teacher (Robins)
+sequential               0.102±0.004  0.928      -0.928          3    lower bound
+pseudo_oracle_natural    0.099±0.003  0.932      -0.932          3    STL-10 + joint teacher
 ```
 
 FGT and −BWT agree on every row because every per-task max happens at the diagonal (the task is best right after it is learned), so `max_{k≥t} A[k,t] = A[t,t]` and `FGT_t = A[t,t] − A[T−1,t] = −BWT_t`.
+
+The 2×2 view:
+
+| | Random pixels | STL-10 natural |
+|---|---|---|
+| CL teacher | 0.103 | 0.106 |
+| Oracle (joint) teacher | 0.105 | 0.099 |
+
+All four cells overlap within seed noise, and none clears sequential (0.102).
 
 ## What the diagnostics show
 
@@ -49,23 +63,41 @@ From `results/diagnostics.json` (joint head from seed 0 acting as teacher, 100K 
 - Joint-head predictive entropy: 0.513 nats on real CIFAR features, 2.666 nats on random features. Uniform-over-100 reference is 4.605. The teacher is far more uncertain on random inputs but not uniformly uncertain.
 - Top-class histogram on random features: class 23 takes 62.7% of all argmax predictions, and the teacher predicts only 4 of the 100 classes anywhere across 100K random inputs. Distribution entropy over predicted classes is 0.664 nats.
 
+From `results/mechanism_check.json` (computed after Sweep 2):
+
+- `argmax_c (W_c · μ_random + b_c) = 23`, where `μ_random` is the mean of the 100K random-pixel features and (W, b) come from the joint head.
+- The empirical top class on the full random pool is also 23 (62.7% of all argmax predictions).
+- Per-dimension std of the random pool, averaged across 384 dims, is 0.305 — confirming the collapse is tight.
+- The collapse is therefore fully predicted by the head and the mean feature alone; no per-sample variation is needed to explain why class 23 dominates.
+
 ## Interpretation
 
-`pseudo` lands within noise of `sequential`, and `lwf` is essentially tied with both. The Robins-1995-with-a-pretrained-backbone thesis — that the backbone's natural-image prior would make random pseudo-inputs carry information about the old decision boundary — does not survive contact with the data here.
+The 2×2 ablation eliminates two natural rescue stories at once:
 
-The diagnostics give a clean mechanism. ViT-S maps uniform random pixels into a tiny, off-manifold region (norm 34 vs 50, NN cosine ~0.39 to real features). Inside that region the joint head has a strong directional preference: ~63% of random samples are classified as one dominant class (class 23), and only 4 classes are ever predicted. So the pseudo-soft-target distribution `q_old = softmax_old(W·x + b)` is, in effect, a near-constant near-one-hot pointing at a single old class. Distilling a constant signal across old classes does not encode the old decision boundary; it adds a weak bias toward one class and leaves the student to forget normally. That matches what we see: pseudo ≈ sequential, and even LwF — which distills on real current-task features, not the off-manifold ones — barely moves the needle, because the linear head is being aggressively rewritten on the new task's 5K examples and old-class outputs collapse regardless of the KD input.
+- *"Random pixels are the problem; natural inputs would carry information."* — Refuted by `pseudo_natural` (STL-10 unlabeled images through the same ViT, CL teacher): ACC 0.106, within noise of plain `pseudo`. The teacher's outputs on STL-10 features are non-degenerate (those are real natural images), but the student still doesn't preserve old boundaries.
+- *"The CL teacher accumulates errors; a perfect teacher would save the method."* — Refuted by `pseudo_oracle` (random pixels, joint-trained head as static teacher): ACC 0.105. Even with a teacher that is the joint upper-bound classifier, KD on random pseudo-features doesn't help.
+- *"Maybe both at once."* — Refuted by `pseudo_oracle_natural` (STL-10 + joint teacher): ACC 0.099, indistinguishable from sequential.
 
-This is a defensible negative result with a mechanistic story, not a "hyperparameters were bad" outcome.
+The mechanism check (`results/mechanism_check.json`) verifies that the random-pixel collapse is geometrically predictable: the dominant pseudo-class is exactly `argmax_c (W_c · μ_random + b_c)` from the joint head, with no per-sample variation needed. That is still an interesting result — it explains why `pseudo` was always going to fail — but it is no longer the whole story, because `pseudo_natural` and `pseudo_oracle` don't suffer from collapse and still fail.
+
+The remaining explanation is structural: in **single-linear-head Class-IL with seen-class masking**, the per-step cross-entropy gradient on 5,000 new-task examples per epoch aggressively rewrites the head; KD on either real or pseudo inputs adds a comparatively weak counter-pressure on the old-class logits, and at α = 1.0 the CE term wins. Only methods that inject **actual old-class training examples** into the batch (replay) produce gradients that defend the old logits directly. EWC's small gain (0.192) is consistent with this — it adds a per-parameter penalty that mildly constrains drift but cannot manufacture the missing class-conditional signal.
+
+This generalizes a known observation about LwF in Class-IL (bias toward the most recent task) but extends it: even with a backbone-prior-aware input distribution and an oracle teacher, KD cannot manufacture the supervision that real exemplars provide.
+
+A residual question, addressed below, is whether the α coefficient was simply too small. We did not sweep α in either sweep; everything ran at α = 1.0. At sufficiently high α the KD term can in principle dominate CE and force the student to mimic the teacher, which for `pseudo_oracle` would converge toward the joint upper bound. The α sweep is the next priority before the paper.
+
+## Figures
+
+- `figures/running_avg_accuracy.png` — running mean accuracy on tasks 0..k vs k for each method. Replay separates immediately and decays gracefully; everything else collapses to ~10-20% by task 9. All four pseudo variants and `lwf` and `sequential` are visually indistinguishable.
+- `figures/final_per_task.png` — A[T-1, t] vs t. Replay stays roughly flat across tasks (40-60%); EWC partially preserves the last 3-4 tasks; every other method gets ~90% on task 9 and ~0% on everything before.
 
 ## What's next (planned)
 
-One more ~30-minute pod session for three diagnostic extensions, then plots. Each is one or two file additions; the training loop and metrics stay fixed.
+- **α sweep on the KD methods (pseudo, lwf, pseudo_oracle, pseudo_natural, pseudo_oracle_natural).** α ∈ {0.5, 1, 5, 10, 50}. Critical for paper defensibility: if `pseudo_oracle` at α=50 approaches joint accuracy, the "structural weakness" story has to be qualified. If it plateaus, the story holds.
+- **λ sweep on EWC.** λ ∈ {1, 10, 100, 1000}. Less urgent — EWC's role in the paper is small.
+- **Replay buffer size ablation.** Examples-per-class ∈ {1, 2, 5, 10, 20}. Gives a data-efficiency frontier on the only method that works.
 
-- **Oracle-teacher diagnostic.** Replace the teacher in `pseudo` with the joint-trained head from `joint_seedN_head.pt`. Isolates "is the teacher wrong" from "is the input distribution wrong." If oracle pseudo still fails, the input distribution is the culprit; if it recovers replay-like numbers, the per-task teacher snapshots are the problem.
-- **Natural OOD pseudo-inputs.** Use STL-10 unlabeled features through the same ViT as the pseudo-rehearsal pool. Cache flag already exists in `cache_features.py --with-stl10`. Tests whether pseudo-rehearsal needs natural-image structure rather than random pixels.
-- **Mechanism prediction.** Verify the dominant-class result is exactly `argmax_c (W_c · μ_random + b_c)` from the joint head — i.e., the collapse is predicted from the head and the mean random feature alone, with no per-sample variation needed.
-
-If time, an α/λ/buffer-size sweep and per-task accuracy curve plots. The plotting code is staged in `plots.py`.
+After the α sweep, write the 5-page paper. The story doesn't depend on additional experiments if the α sweep confirms the plateau.
 
 ## Risks / what could still go wrong
 
