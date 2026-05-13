@@ -1,0 +1,9 @@
+method: ewc
+epochs: 10
+batch_size: 256
+lr: 1.0e-3
+weight_decay: 0.0
+seed: 0
+method_kwargs:
+  lam: 100.0
+  fisher_batch_size: 128

@@ -1,0 +1,11 @@
+method: pseudo
+epochs: 10
+batch_size: 256
+lr: 1.0e-3
+weight_decay: 0.0
+seed: 0
+method_kwargs:
+  alpha: 1.0
+  pool_size: 100000
+  pool_seed: 0
+  temperature: 1.0

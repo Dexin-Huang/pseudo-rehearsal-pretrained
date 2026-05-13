@@ -1,0 +1,9 @@
+method: replay
+epochs: 10
+batch_size: 256
+lr: 1.0e-3
+weight_decay: 0.0
+seed: 0
+method_kwargs:
+  examples_per_class: 5
+  mix_ratio: 0.5
