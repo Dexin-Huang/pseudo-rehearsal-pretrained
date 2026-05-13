@@ -149,11 +149,20 @@ def main() -> None:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--seed", type=int, default=None, help="override seed in config")
     parser.add_argument("--tag", type=str, default="", help="extra tag for output filename")
+    parser.add_argument(
+        "--alpha",
+        type=float,
+        default=None,
+        help="override method_kwargs.alpha (for KD-method sweeps)",
+    )
     args = parser.parse_args()
 
     cfg = TrainConfig.from_yaml(args.config)
     if args.seed is not None:
         cfg.seed = args.seed
+    if args.alpha is not None:
+        cfg.method_kwargs = dict(cfg.method_kwargs or {})
+        cfg.method_kwargs["alpha"] = args.alpha
 
     print(f"running {cfg.method} seed={cfg.seed}")
     result, method = run(cfg)
