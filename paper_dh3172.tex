@@ -112,14 +112,33 @@ old-class supervision into the training batch.
 
 \subsection{Pseudo-rehearsal}
 
-Robins's procedure \citep{robins1995pseudorehearsal} snapshots the
-network as a teacher $f_t$ at the end of task $t$. During task $t+1$,
-each step also draws random inputs $r$ from a simple distribution (uniform
-pixels in the original paper), computes pseudo-targets $q = f_t(r)$, and
-adds $(r, q)$ to the batch with a distillation loss. The Connection
-Science paper used a small MLP and reported some benefit on toy sequential
-tasks. Atkinson et al.\ \citep{atkinson2018pseudorehearsal} extended it
-to deep RL. Otherwise the line saw little modern follow-up.
+Robins introduced pseudo-rehearsal as a fix for catastrophic forgetting
+in small feedforward networks at a time when the modern continual-learning
+toolkit did not exist: no GANs, no VAEs, no large pretrained backbones,
+no exemplar buffers. The procedure is mechanical
+\citep{robins1995pseudorehearsal}:
+\begin{enumerate}
+\item At the end of task $t$, snapshot the network weights as a frozen
+teacher $f_t$.
+\item Sample a pool of random input vectors $\{r_i\}$ from a simple
+distribution. The original paper used uniform values per unit.
+\item Run the teacher on the pool to get pseudo-targets
+$q_i = f_t(r_i)$.
+\item During task $t{+}1$, mix $(r_i, q_i)$ pairs into each training
+batch alongside the new-task data, with a distillation loss on the
+pseudo-pairs in addition to the usual loss on the new data.
+\end{enumerate}
+The student is nudged to keep producing the teacher's responses on
+randomly sampled inputs. No data is stored. No generator is trained. The
+intuition is that if the random inputs cover enough of the input space,
+distilling the teacher's behavior on them transfers the old decision
+boundary. The Connection Science paper reported some benefit on toy MLP
+sequential tasks. The method was dismissed for deep classifiers because
+random inputs to a network trained from scratch are far off the data
+manifold and the teacher's outputs on them carry little information
+about the old-task decision boundary. Atkinson et al.\
+\citep{atkinson2018pseudorehearsal} revived it for deep RL but the line
+otherwise saw little follow-up.
 
 \subsection{Generative and model-inversion replay}
 
