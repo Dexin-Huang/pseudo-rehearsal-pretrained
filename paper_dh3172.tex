@@ -240,9 +240,9 @@ inputs are the current-task real features
 
 \subsection{2$\times$2 ablation and $\alpha$ sweep}
 
-The first sweep (six methods, three seeds, 18 runs) returns a clean null
-for pseudo-rehearsal. Two natural rescue stories follow. Each is tested
-independently.
+The first sweep (six methods, three seeds, 18 runs) returns a negative
+result for pseudo-rehearsal. Two natural follow-up hypotheses remain.
+Each is tested independently.
 
 The first replaces uniform random pixels with STL-10 unlabeled features
 through the same ViT (\texttt{pseudo\_natural}). STL-10 is 100{,}000 real
@@ -287,8 +287,8 @@ $\hat{c}$ is compared against the empirical top class.
 
 To characterize how random pixels through ViT land in feature space, I
 report (i) $L_2$ norm mean and standard deviation of real vs.\ random
-features, (ii) nearest-neighbor cosine distance from a 5K random sample to
-a 5K real sample, (iii) predictive entropy of the joint head on real vs.\
+features, (ii) nearest-neighbor cosine similarity from a 5K random sample
+to a 5K real sample, (iii) predictive entropy of the joint head on real vs.\
 random features, and (iv) the top-class histogram of joint-head predictions
 over the 100{,}000-sample random pool.
 
@@ -298,8 +298,8 @@ over the 100{,}000-sample random pool.
 
 Final accuracy on Split-CIFAR-100, mean $\pm$ std over three seeds, is
 shown in Table~\ref{tab:main}. The 2$\times$2 ablation view is in
-Table~\ref{tab:twobytwo}. The running-average accuracy and final per-task
-accuracy plots are in Fig.~\ref{fig:curves}.
+Table~\ref{tab:twobytwo}. The running-average accuracy curves are in
+Fig.~\ref{fig:curves}.
 
 \begin{table}[t]
 \centering
@@ -358,10 +358,13 @@ Sweeping the KD weight $\alpha$ over two orders of magnitude
 tuning artifact. All three KD methods trace nearly parallel monotonic
 curves. The oracle teacher provides no meaningful advantage over the
 snapshot teacher at any $\alpha$ tested. At $\alpha \to \infty$ the KD term
-would dominate CE and the student would converge to the teacher,
-recovering joint accuracy for \texttt{pseudo\_oracle}. In the explored
-range the curve has not begun to bend toward that limit. Even at
-$\alpha = 50$ the gain over the default $\alpha = 1$ is only 0.04 to 0.05.
+dominates CE and the student converges to the teacher's behavior on the
+pseudo-input distribution; whether that recovers joint accuracy on the
+real CIFAR test set depends on how well that distribution identifies the
+joint head's old-class decision boundary (Section~\ref{sec:discussion}).
+In the explored range the curve has not begun to bend toward joint
+accuracy. Even at $\alpha = 50$ the gain over the default $\alpha = 1$
+is only 0.04 to 0.05.
 
 \begin{table}[t]
 \centering
